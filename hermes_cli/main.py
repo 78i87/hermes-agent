@@ -7227,6 +7227,50 @@ Examples:
     pairing_parser.set_defaults(func=cmd_pairing)
 
     # =========================================================================
+    # ios-pet command (iOS companion pairing / device list)
+    # =========================================================================
+    ios_pet_parser = subparsers.add_parser(
+        "ios-pet",
+        help="iOS pet companion: pairing QR, list devices, test push",
+        description="Manage Hermes iOS pet devices (pairing server on IOS_PET_PORT, default 8643).",
+    )
+    ios_pet_sub = ios_pet_parser.add_subparsers(dest="ios_pet_command", required=True)
+
+    ios_pet_pair = ios_pet_sub.add_parser("pair", help="Start pairing and print a QR code")
+    ios_pet_pair.add_argument(
+        "--wait",
+        action="store_true",
+        help="Wait until a new device registers (polls /v1/ios_pet/devices)",
+    )
+    ios_pet_pair.add_argument(
+        "--wait-timeout",
+        type=float,
+        default=300.0,
+        help="Seconds to wait with --wait (default: 300)",
+    )
+
+    ios_pet_sub.add_parser("list", help="List registered devices (admin)")
+
+    ios_pet_remove = ios_pet_sub.add_parser("remove", help="Unregister a device by UUID")
+    ios_pet_remove.add_argument("device_id", help="Device id from list")
+
+    ios_pet_test = ios_pet_sub.add_parser("test", help="Enqueue a test push to a device")
+    ios_pet_test.add_argument("device_id", help="Device id from list")
+    ios_pet_test.add_argument(
+        "text",
+        nargs="?",
+        default="Hermes iOS pet test ping",
+        help="Preview text (default: test ping)",
+    )
+
+    def cmd_ios_pet(args):
+        from hermes_cli.ios_pet_cli import ios_pet_command
+
+        ios_pet_command(args)
+
+    ios_pet_parser.set_defaults(func=cmd_ios_pet)
+
+    # =========================================================================
     # skills command
     # =========================================================================
     skills_parser = subparsers.add_parser(

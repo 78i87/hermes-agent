@@ -113,7 +113,7 @@ SEND_MESSAGE_SCHEMA = {
             },
             "target": {
                 "type": "string",
-                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org'"
+                "description": "Delivery target. Format: 'platform' (uses home channel), 'platform:#channel-name', 'platform:chat_id', or 'platform:chat_id:thread_id' for Telegram topics and Discord threads. Examples: 'telegram', 'telegram:-1001234567890:17585', 'discord:999888777:555444333', 'discord:#bot-home', 'slack:#engineering', 'signal:+155****4567', 'matrix:!roomid:server.org', 'matrix:@user:server.org', 'ios_pet' (home device) or 'ios_pet:<device-uuid>'"
             },
             "message": {
                 "type": "string",
@@ -208,6 +208,7 @@ def _handle_send(args):
         "weixin": Platform.WEIXIN,
         "email": Platform.EMAIL,
         "sms": Platform.SMS,
+        "ios_pet": Platform.IOS_PET,
     }
     platform = platform_map.get(platform_name)
     if not platform:
@@ -216,9 +217,20 @@ def _handle_send(args):
 
     pconfig = config.platforms.get(platform)
     if not pconfig or not pconfig.enabled:
+        # Missing ios_pet in YAML: optionally enable from IOS_PET_* env only.
+        if platform_name == "ios_pet" and pconfig is None:
+            import os
+            if os.getenv("IOS_PET_ENABLED", "").lower() in ("true", "1", "yes"):
+                from gateway.config import PlatformConfig
+                pconfig = PlatformConfig(enabled=True, extra={})
+            else:
+                return tool_error(
+                    "Platform 'ios_pet' is not configured. Set IOS_PET_ENABLED=true in ~/.hermes/.env "
+                    "or enable ios_pet in gateway config."
+                )
         # Weixin can be configured purely via .env; synthesize a pconfig so
         # send_message and cron delivery work without a gateway.yaml entry.
-        if platform_name == "weixin":
+        elif platform_name == "weixin":
             import os
             wx_token = os.getenv("WEIXIN_TOKEN", "").strip()
             wx_account = os.getenv("WEIXIN_ACCOUNT_ID", "").strip()
@@ -543,6 +555,8 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
             result = await _send_bluebubbles(pconfig.extra, chat_id, chunk)
         elif platform == Platform.QQBOT:
             result = await _send_qqbot(pconfig, chat_id, chunk)
+        elif platform == Platform.IOS_PET:
+            result = await _send_ios_pet(chat_id, chunk)
         else:
             result = {"error": f"Direct sending not yet implemented for {platform.value}"}
 
@@ -555,6 +569,22 @@ async def _send_to_platform(platform, pconfig, chat_id, message, thread_id=None,
         warnings.append(warning)
         last_result["warnings"] = warnings
     return last_result
+
+
+async def _send_ios_pet(chat_id: str, message: str) -> dict:
+    """Enqueue a text message for the iOS pet SSE stream (device_id = chat_id)."""
+    from gateway.platforms.ios_pet import enqueue_ios_pet_event, get_ios_pet_session_id
+
+    sid = get_ios_pet_session_id(str(chat_id))
+    if not sid:
+        return {"error": f"Unknown or inactive iOS pet device: {chat_id}"}
+    ok = enqueue_ios_pet_event(
+        str(chat_id),
+        {"kind": "message", "text": message, "session_id": sid},
+    )
+    if ok:
+        return {"success": True, "platform": "ios_pet", "chat_id": chat_id}
+    return {"error": "Failed to enqueue iOS pet event"}
 
 
 async def _send_telegram(token, chat_id, message, media_files=None, thread_id=None, disable_link_previews=False):

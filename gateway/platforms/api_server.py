@@ -517,24 +517,26 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_progress_callback=None,
         tool_start_callback=None,
         tool_complete_callback=None,
+        platform: str = "api_server",
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
 
         Uses _resolve_runtime_agent_kwargs() to pick up model, api_key,
-        base_url, etc. from config.yaml / env vars.  Toolsets are resolved
-        from config.yaml platform_toolsets.api_server (same as all other
-        gateway platforms), falling back to the hermes-api-server default.
+        base_url, etc. from config.yaml / env vars. Toolsets come from
+        ``platform_toolsets[<platform>]`` (defaults per platform key, e.g.
+        ``hermes-api-server`` / ``hermes-ios-pet``).
         """
         from run_agent import AIAgent
         from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config
-        from hermes_cli.tools_config import _get_platform_tools
+        from hermes_cli.tools_config import _get_platform_tools, PLATFORMS
 
         runtime_kwargs = _resolve_runtime_agent_kwargs()
         model = _resolve_gateway_model()
 
         user_config = _load_gateway_config()
-        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
+        toolset_platform = platform if platform in PLATFORMS else "api_server"
+        enabled_toolsets = sorted(_get_platform_tools(user_config, toolset_platform))
 
         max_iterations = int(os.getenv("HERMES_MAX_ITERATIONS", "90"))
 
@@ -552,7 +554,7 @@ class APIServerAdapter(BasePlatformAdapter):
             ephemeral_system_prompt=ephemeral_system_prompt or None,
             enabled_toolsets=enabled_toolsets,
             session_id=session_id,
-            platform="api_server",
+            platform=toolset_platform,
             stream_delta_callback=stream_delta_callback,
             tool_progress_callback=tool_progress_callback,
             tool_start_callback=tool_start_callback,
@@ -561,6 +563,20 @@ class APIServerAdapter(BasePlatformAdapter):
             fallback_model=fallback_model,
         )
         return agent
+
+    @staticmethod
+    def _resolve_client_platform(session_id: Optional[str]) -> str:
+        """Use ``ios_pet`` toolsets when *session_id* matches a paired device, else ``api_server``."""
+        if not session_id:
+            return "api_server"
+        from gateway.platforms.ios_pet import get_ios_pet_device_for_session
+
+        try:
+            if get_ios_pet_device_for_session(session_id):
+                return "ios_pet"
+        except (sqlite3.Error, OSError) as e:
+            logger.debug("[api_server] ios_pet session lookup failed: %s", e)
+        return "api_server"
 
     # ------------------------------------------------------------------
     # HTTP Handlers
@@ -2174,8 +2190,29 @@ class APIServerAdapter(BasePlatformAdapter):
                         )
                     conversation_history.append({"role": msg["role"], "content": str(content)})
 
-        session_id = body.get("session_id") or stored_session_id or run_id
+        header_session_id = request.headers.get("X-Hermes-Session-Id", "").strip()
+        if header_session_id and re.search(r'[\r\n\x00]', header_session_id):
+            return web.json_response(
+                _openai_error("Invalid session ID", code="invalid_request_error"),
+                status=400,
+            )
+        body_session_id = body.get("session_id")
+        if body_session_id is not None:
+            if not isinstance(body_session_id, str):
+                return web.json_response(
+                    _openai_error("Invalid session ID", code="invalid_request_error"),
+                    status=400,
+                )
+            body_session_id = body_session_id.strip()
+            if body_session_id and re.search(r'[\r\n\x00]', body_session_id):
+                return web.json_response(
+                    _openai_error("Invalid session ID", code="invalid_request_error"),
+                    status=400,
+                )
+        session_id = body_session_id or header_session_id or stored_session_id or run_id
         ephemeral_system_prompt = instructions
+
+        resolved_platform = self._resolve_client_platform(session_id)
 
         async def _run_and_close():
             try:
@@ -2184,6 +2221,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     session_id=session_id,
                     stream_delta_callback=_text_cb,
                     tool_progress_callback=event_cb,
+                    platform=resolved_platform,
                 )
                 def _run_sync():
                     r = agent.run_conversation(
@@ -2233,7 +2271,11 @@ class APIServerAdapter(BasePlatformAdapter):
         if hasattr(task, "add_done_callback"):
             task.add_done_callback(self._background_tasks.discard)
 
-        return web.json_response({"run_id": run_id, "status": "started"}, status=202)
+        return web.json_response(
+            {"run_id": run_id, "status": "started", "session_id": session_id},
+            status=202,
+            headers={"X-Hermes-Session-Id": session_id},
+        )
 
     async def _handle_run_events(self, request: "web.Request") -> "web.StreamResponse":
         """GET /v1/runs/{run_id}/events — SSE stream of structured agent lifecycle events."""

@@ -67,6 +67,13 @@ class TestApiServerPlatformConfig:
         assert PLATFORMS["api_server"]["default_toolset"] == "hermes-api-server"
 
 
+class TestIosPetPlatformConfig:
+    def test_platforms_dict_includes_ios_pet(self):
+        from hermes_cli.tools_config import PLATFORMS
+        assert "ios_pet" in PLATFORMS
+        assert PLATFORMS["ios_pet"]["default_toolset"] == "hermes-ios-pet"
+
+
 class TestApiServerAdapterToolset:
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_create_agent_reads_config_toolsets(self):
@@ -127,3 +134,63 @@ class TestApiServerAdapterToolset:
             call_kwargs = mock_agent_cls.call_args
             toolsets = call_kwargs.kwargs.get("enabled_toolsets")
             assert sorted(toolsets) == ["terminal", "web"]
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_create_agent_with_ios_pet_platform_uses_restricted_toolset(self):
+        """ios_pet platform uses ios_pet toolset categories (no terminal/file/code_execution)."""
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(PlatformConfig())
+
+        with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \
+             patch("gateway.run._resolve_gateway_model") as mock_model, \
+             patch("gateway.run._load_gateway_config") as mock_config, \
+             patch("run_agent.AIAgent") as mock_agent_cls:
+
+            mock_kwargs.return_value = {"api_key": "test-key", "base_url": None,
+                                        "provider": None, "api_mode": None,
+                                        "command": None, "args": []}
+            mock_model.return_value = "test/model"
+            # No override — falls back to the hermes-ios-pet default.
+            mock_config.return_value = {}
+            mock_agent_cls.return_value = MagicMock()
+
+            adapter._create_agent(platform="ios_pet")
+
+            mock_agent_cls.assert_called_once()
+            call_kwargs = mock_agent_cls.call_args
+            assert call_kwargs.kwargs.get("platform") == "ios_pet"
+            toolsets = set(call_kwargs.kwargs.get("enabled_toolsets") or [])
+            for banned_category in ("terminal", "file", "code_execution", "cronjob"):
+                assert banned_category not in toolsets, (
+                    f"iOS Pet agent received forbidden toolset category: {banned_category}"
+                )
+            assert "web" in toolsets
+            assert "memory" in toolsets
+            assert "messaging" in toolsets
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_create_agent_falls_back_when_platform_key_is_unknown(self):
+        """An unknown platform string must not crash — fall back to api_server."""
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(PlatformConfig())
+
+        with patch("gateway.run._resolve_runtime_agent_kwargs") as mock_kwargs, \
+             patch("gateway.run._resolve_gateway_model") as mock_model, \
+             patch("gateway.run._load_gateway_config") as mock_config, \
+             patch("run_agent.AIAgent") as mock_agent_cls:
+
+            mock_kwargs.return_value = {"api_key": "test-key", "base_url": None,
+                                        "provider": None, "api_mode": None,
+                                        "command": None, "args": []}
+            mock_model.return_value = "test/model"
+            mock_config.return_value = {}
+            mock_agent_cls.return_value = MagicMock()
+
+            adapter._create_agent(platform="nonexistent-platform")
+
+            call_kwargs = mock_agent_cls.call_args
+            assert call_kwargs.kwargs.get("platform") == "api_server"

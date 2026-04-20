@@ -390,6 +390,12 @@ PLATFORM_HINTS = {
         "your response. Images are sent as native photos, and other files arrive as downloadable "
         "documents."
     ),
+    "ios_pet": (
+        "You are replying to the user through a small on-screen pet companion on iOS. "
+        "Keep answers short and conversational. Avoid large markdown tables, numbered lists longer "
+        "than a few items, and huge code blocks. Summarize tool activity briefly; do not narrate "
+        "every step. The client shows plain text in a speech bubble — prefer short paragraphs."
+    ),
 }
 
 # ---------------------------------------------------------------------------
