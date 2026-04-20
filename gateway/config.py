@@ -1068,13 +1068,13 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
                 pass
         if ios_pet_host:
             config.platforms[Platform.IOS_PET].extra["host"] = ios_pet_host
-        ios_pet_home = os.getenv("IOS_PET_HOME_CHANNEL", "")
-        if ios_pet_home and Platform.IOS_PET in config.platforms:
-            config.platforms[Platform.IOS_PET].home_channel = HomeChannel(
-                platform=Platform.IOS_PET,
-                chat_id=ios_pet_home,
-                name=os.getenv("IOS_PET_HOME_CHANNEL_NAME", "iOS Pet Home"),
-            )
+    ios_pet_home = os.getenv("IOS_PET_HOME_CHANNEL", "")
+    if ios_pet_home and Platform.IOS_PET in config.platforms:
+        config.platforms[Platform.IOS_PET].home_channel = HomeChannel(
+            platform=Platform.IOS_PET,
+            chat_id=ios_pet_home,
+            name=os.getenv("IOS_PET_HOME_CHANNEL_NAME", "iOS Pet Home"),
+        )
 
     # Webhook platform
     webhook_enabled = os.getenv("WEBHOOK_ENABLED", "").lower() in ("true", "1", "yes")

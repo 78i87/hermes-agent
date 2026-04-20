@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gateway.config import Platform, PlatformConfig, load_gateway_config
+from gateway.config import GatewayConfig, Platform, PlatformConfig, load_gateway_config
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +95,17 @@ class TestEnvOverrides:
         cfg = load_gateway_config()
         assert Platform.IOS_PET in cfg.platforms
         assert cfg.platforms[Platform.IOS_PET].enabled is True
+
+    def test_ios_pet_home_channel_env_applies_to_yaml_platform(self, monkeypatch):
+        from gateway.config import _apply_env_overrides
+
+        monkeypatch.setenv("IOS_PET_HOME_CHANNEL", "device-home-123")
+        cfg = GatewayConfig(platforms={Platform.IOS_PET: PlatformConfig(enabled=True)})
+
+        _apply_env_overrides(cfg)
+
+        assert cfg.platforms[Platform.IOS_PET].home_channel is not None
+        assert cfg.platforms[Platform.IOS_PET].home_channel.chat_id == "device-home-123"
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +190,45 @@ class TestSqliteHelpers:
         assert ip.get_ios_pet_session_id(device_id) is None
         assert ip.get_ios_pet_device_for_session("sess-inactive") is None
 
+    def test_enqueue_runs_retention_cleanup(self):
+        from gateway.platforms import ios_pet as ip
+
+        device_id = f"dev-retention-{uuid.uuid4().hex[:8]}"
+        conn = ip._ensure_db()
+        try:
+            conn.execute(
+                """INSERT INTO devices (id, name, bearer_hash, session_id, paired_at, last_seen, active)
+                   VALUES (?, 't', 'x', 'sess-retention', 0, 0, 1)""",
+                (device_id,),
+            )
+            conn.execute(
+                "INSERT INTO pair_sessions (pair_code, pair_token_hash, expires_at, used) VALUES (?, ?, ?, 0)",
+                ("expired-pair", "hash", 0),
+            )
+            conn.execute(
+                "INSERT INTO events (device_id, payload_json, created_at, delivered) VALUES (?, ?, 0, 1)",
+                (device_id, json.dumps({"kind": "old"})),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        assert ip.enqueue_ios_pet_event(device_id, {"kind": "message", "text": "new"})
+
+        conn = ip._ensure_db()
+        try:
+            old_events = conn.execute(
+                "SELECT COUNT(*) FROM events WHERE device_id = ? AND delivered = 1",
+                (device_id,),
+            ).fetchone()[0]
+            expired_pairs = conn.execute(
+                "SELECT COUNT(*) FROM pair_sessions WHERE pair_code = 'expired-pair'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert old_events == 0
+        assert expired_pairs == 0
+
 
 # ---------------------------------------------------------------------------
 # HTTP surface — pairing, admin, test push
@@ -212,6 +262,29 @@ async def test_pair_complete_and_admin_devices():
                 json={"device_id": device_id, "text": "ping"},
             ) as resp:
                 assert resp.status == 200
+    finally:
+        await adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_test_push_reports_enqueue_failure(monkeypatch):
+    import aiohttp
+    from gateway.platforms import ios_pet as ip
+
+    adapter, port = await _start_adapter("enqueue-fail-admin-key")
+    try:
+        done = await _pair(port, "enqueue-fail-admin-key", "FailPhone")
+        monkeypatch.setattr(ip, "enqueue_ios_pet_event", lambda *args, **kwargs: False)
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"http://127.0.0.1:{port}/v1/ios_pet/test_push",
+                headers={"Authorization": "Bearer enqueue-fail-admin-key"},
+                json={"device_id": done["device_id"], "text": "ping"},
+            ) as resp:
+                assert resp.status == 500
+                data = await resp.json()
+                assert "enqueue" in data["error"].lower()
     finally:
         await adapter.disconnect()
 

@@ -158,6 +158,7 @@ def enqueue_ios_pet_event(
             (device_id, json.dumps(payload, separators=(",", ":"), ensure_ascii=False), time.time()),
         )
         conn.commit()
+        _housekeep(conn)
         return True
     except Exception as e:
         logger.warning("[ios_pet] enqueue failed: %s", e)
@@ -262,6 +263,7 @@ class IOSPetAdapter(BasePlatformAdapter):
                 (pair_code, _hash_token(pair_token), expires_at),
             )
             conn.commit()
+            _housekeep(conn)
         finally:
             conn.close()
         return web.json_response({
@@ -323,6 +325,7 @@ class IOSPetAdapter(BasePlatformAdapter):
                 (device_id, device_name, _hash_token(bearer), session_id, time.time(), time.time()),
             )
             conn.commit()
+            _housekeep(conn)
         except sqlite3.DatabaseError as e:
             logger.warning("[ios_pet] pair_complete failed: %s", e)
             try:
@@ -409,7 +412,7 @@ class IOSPetAdapter(BasePlatformAdapter):
         if not row:
             return web.json_response({"error": "Device not found"}, status=404)
         session_id = row["session_id"]
-        enqueue_ios_pet_event(
+        enqueued = enqueue_ios_pet_event(
             device_id,
             {
                 "kind": "nudge",
@@ -419,6 +422,8 @@ class IOSPetAdapter(BasePlatformAdapter):
                 "deep_link": f"hermespet://open?session={session_id}",
             },
         )
+        if not enqueued:
+            return web.json_response({"error": "Failed to enqueue test push"}, status=500)
         return web.json_response({"ok": True, "enqueued": True})
 
     async def _handle_ack(self, request: "web.Request") -> "web.Response":
@@ -441,6 +446,7 @@ class IOSPetAdapter(BasePlatformAdapter):
                 (device_id, last_id),
             )
             conn.commit()
+            _housekeep(conn)
         finally:
             conn.close()
         return web.json_response({"ok": True})
