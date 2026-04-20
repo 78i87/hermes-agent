@@ -428,7 +428,7 @@ class TestPlatformToolsetConsistency:
 
         gateway_includes = set(TOOLSETS["hermes-gateway"]["includes"])
         # Exclude non-messaging platforms from the check
-        non_messaging = {"cli", "api_server"}
+        non_messaging = {"cli", "api_server", "ios_pet"}
         for platform, meta in PLATFORMS.items():
             if platform in non_messaging:
                 continue
@@ -443,7 +443,7 @@ class TestPlatformToolsetConsistency:
         from hermes_cli.tools_config import PLATFORMS as TOOLS_PLATFORMS
         from hermes_cli.skills_config import PLATFORMS as SKILLS_PLATFORMS
 
-        non_messaging = {"api_server"}
+        non_messaging = {"api_server", "ios_pet"}
         for platform in TOOLS_PLATFORMS:
             if platform in non_messaging:
                 continue

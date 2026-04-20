@@ -67,6 +67,7 @@ class Platform(Enum):
     WEIXIN = "weixin"
     BLUEBUBBLES = "bluebubbles"
     QQBOT = "qqbot"
+    IOS_PET = "ios_pet"
 
 
 @dataclass
@@ -112,7 +113,7 @@ class SessionResetPolicy:
     at_hour: int = 4  # Hour for daily reset (0-23, local time)
     idle_minutes: int = 1440  # Minutes of inactivity before reset (24 hours)
     notify: bool = True  # Send a notification to the user when auto-reset occurs
-    notify_exclude_platforms: tuple = ("api_server", "webhook")  # Platforms that don't get reset notifications
+    notify_exclude_platforms: tuple = ("api_server", "webhook", "ios_pet")  # Platforms that don't get reset notifications
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -136,7 +137,7 @@ class SessionResetPolicy:
             at_hour=at_hour if at_hour is not None else 4,
             idle_minutes=idle_minutes if idle_minutes is not None else 1440,
             notify=notify if notify is not None else True,
-            notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server", "webhook"),
+            notify_exclude_platforms=tuple(exclude) if exclude is not None else ("api_server", "webhook", "ios_pet"),
         )
 
 
@@ -293,6 +294,9 @@ class GatewayConfig:
                 connected.append(platform)
             # API Server uses enabled flag only (no token needed)
             elif platform == Platform.API_SERVER:
+                connected.append(platform)
+            # iOS Pet HTTP server (pairing + SSE) — enabled flag only
+            elif platform == Platform.IOS_PET:
                 connected.append(platform)
             # Webhook uses enabled flag only (secrets are per-route)
             elif platform == Platform.WEBHOOK:
@@ -1045,6 +1049,32 @@ def _apply_env_overrides(config: GatewayConfig) -> None:
         api_server_model_name = os.getenv("API_SERVER_MODEL_NAME", "")
         if api_server_model_name:
             config.platforms[Platform.API_SERVER].extra["model_name"] = api_server_model_name
+
+    # iOS Pet companion (pairing + SSE push stream)
+    ios_pet_enabled = os.getenv("IOS_PET_ENABLED", "").lower() in ("true", "1", "yes")
+    ios_pet_host = os.getenv("IOS_PET_HOST", "")
+    ios_pet_port = os.getenv("IOS_PET_PORT", "")
+    ios_pet_admin_key = os.getenv("IOS_PET_ADMIN_KEY", "")
+    if ios_pet_enabled or ios_pet_host or ios_pet_port or ios_pet_admin_key:
+        if Platform.IOS_PET not in config.platforms:
+            config.platforms[Platform.IOS_PET] = PlatformConfig()
+        config.platforms[Platform.IOS_PET].enabled = True
+        if ios_pet_admin_key:
+            config.platforms[Platform.IOS_PET].extra["admin_key"] = ios_pet_admin_key
+        if ios_pet_port:
+            try:
+                config.platforms[Platform.IOS_PET].extra["port"] = int(ios_pet_port)
+            except ValueError:
+                pass
+        if ios_pet_host:
+            config.platforms[Platform.IOS_PET].extra["host"] = ios_pet_host
+        ios_pet_home = os.getenv("IOS_PET_HOME_CHANNEL", "")
+        if ios_pet_home and Platform.IOS_PET in config.platforms:
+            config.platforms[Platform.IOS_PET].home_channel = HomeChannel(
+                platform=Platform.IOS_PET,
+                chat_id=ios_pet_home,
+                name=os.getenv("IOS_PET_HOME_CHANNEL_NAME", "iOS Pet Home"),
+            )
 
     # Webhook platform
     webhook_enabled = os.getenv("WEBHOOK_ENABLED", "").lower() in ("true", "1", "yes")

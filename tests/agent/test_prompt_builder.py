@@ -788,6 +788,7 @@ class TestPromptBuilderConstants:
         assert "discord" in PLATFORM_HINTS
         assert "cron" in PLATFORM_HINTS
         assert "cli" in PLATFORM_HINTS
+        assert "ios_pet" in PLATFORM_HINTS
 
 
 # =========================================================================

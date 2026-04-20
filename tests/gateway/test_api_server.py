@@ -227,6 +227,7 @@ def _create_app(adapter: APIServerAdapter) -> web.Application:
     app.router.add_post("/v1/responses", adapter._handle_responses)
     app.router.add_get("/v1/responses/{response_id}", adapter._handle_get_response)
     app.router.add_delete("/v1/responses/{response_id}", adapter._handle_delete_response)
+    app.router.add_post("/v1/runs", adapter._handle_runs)
     return app
 
 
@@ -2091,3 +2092,24 @@ class TestSessionIdHeader:
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["conversation_history"] == []
             assert call_kwargs["session_id"] == "some-session"
+
+
+# ---------------------------------------------------------------------------
+# /v1/runs session id validation
+# ---------------------------------------------------------------------------
+
+
+class TestRunsSessionIdValidation:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad_session_id", [{"bad": "type"}, "bad\r\nX-Injected: 1", "bad\x00id"])
+    async def test_body_session_id_must_be_header_safe(self, adapter, bad_session_id):
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            resp = await cli.post(
+                "/v1/runs",
+                json={"input": "hello", "session_id": bad_session_id},
+            )
+
+            assert resp.status == 400
+            data = await resp.json()
+            assert data["error"]["code"] == "invalid_request_error"

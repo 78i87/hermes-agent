@@ -257,6 +257,29 @@ TOOLSETS = {
         "includes": []
     },
 
+    "hermes-ios-pet": {
+        "description": (
+            "iOS pet companion — browser/web/memory/skills/messaging; no terminal, file I/O, execute_code, or cron."
+        ),
+        "tools": [
+            "web_search", "web_extract",
+            "vision_analyze", "image_generate",
+            "skills_list", "skill_view", "skill_manage",
+            "browser_navigate", "browser_snapshot", "browser_click",
+            "browser_type", "browser_scroll", "browser_back",
+            "browser_press", "browser_get_images",
+            "browser_vision", "browser_console", "browser_cdp",
+            "text_to_speech",
+            "todo", "memory",
+            "session_search",
+            "clarify",
+            "delegate_task",
+            "send_message",
+            "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+        ],
+        "includes": [],
+    },
+
     "hermes-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
@@ -410,7 +433,7 @@ TOOLSETS = {
     "hermes-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook"]
+        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook", "hermes-ios-pet"]
     }
 }
 
